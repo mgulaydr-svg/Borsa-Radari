@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Quantamental Fon Radarı V4.1", layout="wide")
+st.set_page_config(page_title="Quantamental Fon Radarı V4.3", layout="wide")
 
 # --- 1. MAKRO REJİM MOTORU ---
 @st.cache_data(ttl=600)
@@ -45,35 +45,39 @@ strateji = st.sidebar.selectbox(
     ["Manuel Ayarlar", "🛡️ Kalkan (Defansif)", "🚀 Avcı (Agresif Büyüme)", "🦅 Anka (Dipten Dönüş)", "🏢 Nakit İneği (Temettü)"]
 )
 
-# Strateji Parametrelerinin Dinamik Atanması
+# --- BACKTEST OPTİMİZE EDİLMİŞ STRATEJİ PROFİLLERİ ---
 if strateji == "🛡️ Kalkan (Defansif)":
-    p_max_fk, p_max_pddd = 12.0, 3.0
-    p_rsi_min, p_rsi_max = 45, 60
-    p_ema_periyot = 21
-    p_hacim_artis = 20
-    p_iz_suren = 5.0
-    p_atr = 1.5
+    # Sağlam hisseler için geniş stop (Whipsaw önlemi), ağır trend takibi (EMA-50)
+    p_max_fk, p_max_pddd = 15.0, 4.0 
+    p_rsi_min, p_rsi_max = 40, 65
+    p_ema_periyot = 50 
+    p_hacim_artis = 10 
+    p_iz_suren = 12.0 
+    p_atr = 2.5 
 elif strateji == "🚀 Avcı (Agresif Büyüme)":
-    p_max_fk, p_max_pddd = 30.0, 8.0
-    p_rsi_min, p_rsi_max = 60, 80
-    p_ema_periyot = 9
-    p_hacim_artis = 80
-    p_iz_suren = 10.0
-    p_atr = 2.0
+    # Volatil hisseler için dar stop (Şelale önlemi), hızlı trend takibi (EMA-9)
+    p_max_fk, p_max_pddd = 40.0, 10.0
+    p_rsi_min, p_rsi_max = 60, 85 
+    p_ema_periyot = 9 
+    p_hacim_artis = 60
+    p_iz_suren = 8.0 
+    p_atr = 1.5 
 elif strateji == "🦅 Anka (Dipten Dönüş)":
+    # Dibe vurmuş ucuz kalmış hisseler için
     p_max_fk, p_max_pddd = 8.0, 1.5
     p_rsi_min, p_rsi_max = 30, 45
     p_ema_periyot = 21
     p_hacim_artis = 50
-    p_iz_suren = 7.0
-    p_atr = 1.0
+    p_iz_suren = 10.0
+    p_atr = 2.0
 elif strateji == "🏢 Nakit İneği (Temettü)":
+    # Kalkan'dan bile daha hantal, uzun vadeli limanlar için çok geniş stoplar
     p_max_fk, p_max_pddd = 10.0, 2.0
     p_rsi_min, p_rsi_max = 40, 65
     p_ema_periyot = 50
     p_hacim_artis = 0
-    p_iz_suren = 7.0
-    p_atr = 1.5
+    p_iz_suren = 15.0
+    p_atr = 3.0
 else: # Manuel Ayarlar
     st.sidebar.caption("Manuel parametreleri aşağıdan belirleyin:")
     p_max_fk = st.sidebar.slider("Maks F/K", 0.0, 50.0, 15.0)
@@ -85,21 +89,17 @@ else: # Manuel Ayarlar
     p_iz_suren = st.sidebar.slider("İz Süren Stop (%)", 3.0, 15.0, 7.0)
     p_atr = st.sidebar.slider("ATR Tamponu", 0.5, 3.0, 1.5)
 
-# --- 3. MATEMATİK VE SİNYAL MOTORU ---
+# --- 3. MATEMATİK VE SİNYAL MOTORU (OPTIMİZE) ---
 @st.cache_data(ttl=300)
-def hisse_analiz_et(ticker, strat_name):
+def hisse_analiz_et(ticker, strat_name, hizli_tarama=False):
     try:
         hisse = yf.Ticker(ticker)
         df = hisse.history(period="6mo", interval="1d")
         if len(df) < 50: return None
         
-        info = hisse.info
-        fk_orani = info.get('trailingPE', 0) or 0
-        pddd_orani = info.get('priceToBook', 0) or 0
-
-        # Teknik İndikatörler
+        # 1. Teknik İndikatörleri Hesapla
         df['EMA_Trend'] = df['Close'].ewm(span=p_ema_periyot, adjust=False).mean()
-        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean() # Standart koruma
+        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean() # Baseline referans
         
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0.0).rolling(14).mean()
@@ -122,15 +122,27 @@ def hisse_analiz_et(ticker, strat_name):
         son_bar = df.iloc[-1]
         fiyat = son_bar['Close']
         
-        # Şartların Kontrolü
+        # Teknik Şartların Kontrolü
         trend_sarti = fiyat > son_bar['EMA_Trend']
         rsi_sarti = p_rsi_min <= son_bar['RSI_14'] <= p_rsi_max
         hacim_sarti = son_bar['Volume'] >= son_bar['Vol_SMA20'] * (1 + (p_hacim_artis / 100))
-        temel_sarti = (0 < fk_orani <= p_max_fk) and (0 < pddd_orani <= p_max_pddd)
+        stop_oldu_mu = (fiyat < son_bar['Trailing_Stop']) or (fiyat < son_bar['ATR_Stop'])
         
         teknik_ok = trend_sarti and rsi_sarti and hacim_sarti
         
-        # Detaylı Sinyal ve Karar Mekanizması
+        # 2. Lazy Evaluation Optimizasyonu
+        fk_orani, pddd_orani = 0.0, 0.0
+        temel_sarti = False
+        
+        if hizli_tarama and (stop_oldu_mu or not teknik_ok):
+            pass 
+        else:
+            info = hisse.info
+            fk_orani = info.get('trailingPE', 0) or 0
+            pddd_orani = info.get('priceToBook', 0) or 0
+            temel_sarti = (0 < fk_orani <= p_max_fk) and (0 < pddd_orani <= p_max_pddd)
+
+        # 3. Detaylı Sinyal ve Karar Mekanizması
         if fiyat < son_bar['Trailing_Stop']:
             durum = f"🔴 SAT (İz Süren Kırıldı: {fiyat:.2f} < {son_bar['Trailing_Stop']:.2f})"
         elif fiyat < son_bar['ATR_Stop']:
@@ -156,7 +168,7 @@ def hisse_analiz_et(ticker, strat_name):
             "PD/DD": round(pddd_orani, 2),
             f"EMA-{p_ema_periyot}": round(son_bar['EMA_Trend'], 2),
             "RSI": round(son_bar['RSI_14'], 1),
-            "İz Süren Stop": round(son_bar['Trailing_Stop'], 2),
+            "İz Süren": round(son_bar['Trailing_Stop'], 2),
             "ATR Stop": round(son_bar['ATR_Stop'], 2),
             "Sinyal": durum
         }
@@ -170,12 +182,12 @@ def listeyi_analiz_et(girdi_metni):
     with st.spinner(f'{strateji} ayarlarına göre taranıyor...'):
         for h in hisseler:
             if not h.endswith(".IS"): h += ".IS"
-            sonuc = hisse_analiz_et(h, strateji)
+            sonuc = hisse_analiz_et(h, strateji, hizli_tarama=False)
             if sonuc: sonuclar.append(sonuc)
     return pd.DataFrame(sonuclar) if sonuclar else None
 
 # --- 4. ANA EKRAN SEKMELERİ ---
-st.title("🛡️ Quantamental Portföy & Tarama Kokpiti V4.1")
+st.title("🛡️ Quantamental Portföy & Tarama Kokpiti V4.3")
 st.caption(f"Geçerli Strateji Seti: **{strateji}** | Rejim: **{rejim}**")
 
 tab_portfoy, tab_izleme, tab_tarama, tab_sorgu = st.tabs([
@@ -214,8 +226,8 @@ with tab_tarama:
                 
                 for i, hisse in enumerate(tum_hisseler):
                     ilerleme_metni.text(f"Taranıyor: {hisse} ({i+1}/{toplam_sayi})")
-                    sonuc = hisse_analiz_et(hisse, strateji)
                     
+                    sonuc = hisse_analiz_et(hisse, strateji, hizli_tarama=True)
                     if sonuc is not None and ("KUSURSUZ" in sonuc['Sinyal'] or "YASAK" in sonuc['Sinyal']):
                         firsatlar.append(sonuc)
                         
@@ -236,6 +248,6 @@ with tab_sorgu:
     if aranan_hisse:
         if not aranan_hisse.endswith(".IS"): aranan_hisse += ".IS"
         with st.spinner('Analiz ediliyor...'):
-            sonuc = hisse_analiz_et(aranan_hisse, strateji)
+            sonuc = hisse_analiz_et(aranan_hisse, strateji, hizli_tarama=False)
             if sonuc is not None:
                 st.dataframe(pd.DataFrame([sonuc]), use_container_width=True)
