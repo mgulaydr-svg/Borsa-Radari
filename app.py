@@ -2,161 +2,113 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
-# --- Sayfa Yapılandırması ---
-st.set_page_config(
-    page_title="Quantamental Portföy Kokpiti",
-    page_icon="📈",
-    layout="wide"
-)
+st.set_page_config(page_title="Quantamental Fon Yönetimi", layout="wide")
 
-# --- Yan Menü: Parametre Kontrolü ---
+# --- YAN MENÜ: PARAMETRELER ---
 st.sidebar.header("🎛️ Algoritma Parametreleri")
+atr_carpani = st.sidebar.slider("ATR Dalgalanma Tamponu (α)", 0.5, 3.0, 1.5, 0.1)
+trailing_stop_pct = st.sidebar.slider("İz Süren Stop (%)", 3.0, 15.0, 7.0, 0.5)
+rsi_limit = st.sidebar.slider("RSI Aşırı Alım Sınırı", 50, 85, 65, 1)
 
-atr_carpani = st.sidebar.slider("ATR Dalgalanma Tamponu (α)", min_value=0.5, max_value=3.0, value=1.5, step=0.1)
-trailing_stop_pct = st.sidebar.slider("İz Süren Stop Oranı (%)", min_value=3.0, max_value=15.0, value=7.0, step=0.5)
-rsi_ust_limit = st.sidebar.slider("RSI Aşırı Alım Filtresi", min_value=60, max_value=80, value=65, step=1)
-hacim_esigi = st.sidebar.slider("Hacim Artış Şartı (%)", min_value=0, max_value=100, value=20, step=5)
-
-# --- Veri Çekme ve Hesaplama Fonksiyonu ---
-@st.cache_data(ttl=300)
-def hisse_verisi_hazirla(ticker):
-    df = yf.Ticker(ticker).history(period="6mo", interval="1d")
-    if df.empty:
-        return None
-    
-    # EMA 21
-    df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    
-    # RSI 14
-    delta = df['Close'].diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df['RSI_14'] = 100 - (100 / (1 + rs))
-    
-    # ATR 14
-    high_low = df['High'] - df['Low']
-    high_close = (df['High'] - df['Close'].shift()).abs()
-    low_close = (df['Low'] - df['Close'].shift()).abs()
-    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df['ATR_14'] = true_range.rolling(14).mean()
-    
-    # Dinamik Stop Seviyesi (EMA - alpha * ATR)
-    df['ATR_Stop'] = df['EMA_21'] - (atr_carpani * df['ATR_14'])
-    
-    # İz Süren Stop Seviyesi (Son 20 günün zirvesinden trailing_stop_pct kadar aşağıda)
-    df['Rolling_Peak'] = df['High'].rolling(20).max()
-    df['Trailing_Stop'] = df['Rolling_Peak'] * (1 - (trailing_stop_pct / 100))
-    
-    # 20 Günlük Ortalama Hacim
-    df['Vol_SMA20'] = df['Volume'].rolling(20).mean()
-    
-    return df.dropna()
-
-# --- Başlık ve Özet Kartları ---
-st.title("🛡️ Quantamental Portföy & Karar Destek Paneli")
-st.caption(f"Veri Güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
-
-tab_anchor, tab_radar = st.tabs(["⚓ Anchor Varlıklar (MPARK / KCHOL)", "📡 Taktik Radar & İzleme"])
-
-with tab_anchor:
-    st.subheader("Anchor Varlık Analizi: MPARK.IS")
-    
-    veri = hisse_verisi_hazirla("MPARK.IS")
-    
-    if veri is not None:
-        son_bar = veri.iloc[-1]
-        onceki_bar = veri.iloc[-2]
+# --- MATEMATİK MOTORU ---
+@st.cache_data(ttl=300) # Veriyi 5 dakika hafızada tutar (Hız kazandırır)
+def hisse_analiz_et(ticker):
+    try:
+        df = yf.Ticker(ticker).history(period="3mo", interval="1d")
+        if df.empty: return None
         
-        # Temel Metrik Kartları
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Son Fiyat", f"{son_bar['Close']:.2f} TL", f"{(son_bar['Close'] - onceki_bar['Close']):.2f} TL")
-        col2.metric("EMA-21", f"{son_bar['EMA_21']:.2f} TL", f"Fark: {(son_bar['Close'] - son_bar['EMA_21']):.2f} TL")
-        col3.metric("ATR Kalkan Stop", f"{son_bar['ATR_Stop']:.2f} TL")
-        col4.metric("İz Süren Stop", f"{son_bar['Trailing_Stop']:.2f} TL")
+        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
         
-        # Karar Sinyali Üretimi
-        sinyal = "BEKLE"
-        renk = "warning"
+        # RSI Hesaplama
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+        loss = -delta.where(delta < 0, 0.0).rolling(14).mean()
+        rs = gain / loss.replace(0, np.nan)
+        df['RSI_14'] = 100 - (100 / (1 + rs))
         
-        fiyat_guvenli = son_bar['Close'] > son_bar['ATR_Stop']
-        rsi_uygun = son_bar['RSI_14'] < rsi_ust_limit
-        hacim_onay = son_bar['Volume'] > (son_bar['Vol_SMA20'] * (1 + hacim_esigi / 100))
+        # ATR Hesaplama
+        high_low = df['High'] - df['Low']
+        high_close = (df['High'] - df['Close'].shift()).abs()
+        low_close = (df['Low'] - df['Close'].shift()).abs()
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        df['ATR_14'] = tr.rolling(14).mean()
         
-        if son_bar['Close'] < son_bar['Trailing_Stop']:
-            sinyal = "🔴 İZ SÜREN STOP TETİKLENDİ (KÂR KİLİTLE / ÇIK)"
-            st.error(sinyal)
-        elif son_bar['Close'] < son_bar['ATR_Stop']:
-            sinyal = "🔴 ATR KALKAN STOP TETİKLENDİ (ZARAR KES)"
-            st.error(sinyal)
-        elif son_bar['Close'] > son_bar['EMA_21'] and rsi_uygun:
-            sinyal = "🟢 GÜVENLİ BÖLGE (POZİSYONU KORU / EKLE)"
-            st.success(sinyal)
+        # Stop Kalkanları
+        df['ATR_Stop'] = df['EMA_21'] - (atr_carpani * df['ATR_14'])
+        df['Trailing_Stop'] = df['High'].rolling(20).max() * (1 - (trailing_stop_pct / 100))
+        
+        son_bar = df.iloc[-1]
+        
+        # Sinyal Üretimi
+        fiyat = son_bar['Close']
+        if fiyat < son_bar['Trailing_Stop']:
+            durum = "🔴 İZ SÜREN PATLADI (SAT)"
+        elif fiyat < son_bar['ATR_Stop']:
+            durum = "🔴 ATR STOP (ZARAR KES)"
+        elif fiyat > son_bar['EMA_21'] and son_bar['RSI_14'] < rsi_limit:
+            durum = "🟢 GÜÇLÜ TREND (AL/TUT)"
         else:
-            st.warning("⏳ İZLEMEDE KAL (NÖTR BÖLGE)")
+            durum = "⏳ BEKLE (ZAYIF/ŞİŞKİN)"
             
-        # Görsel Plotly Grafiği
-        fig = go.Figure()
-        
-        fig.add_trace(go.Candlestick(
-            x=veri.index,
-            open=veri['Open'], high=veri['High'],
-            low=veri['Low'], close=veri['Close'],
-            name="MPARK Fiyat"
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=veri.index, y=veri['EMA_21'],
-            line=dict(color='orange', width=2),
-            name="EMA 21"
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=veri.index, y=veri['ATR_Stop'],
-            line=dict(color='red', width=1.5, dash='dot'),
-            name="ATR Dinamik Stop"
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=veri.index, y=veri['Trailing_Stop'],
-            line=dict(color='purple', width=1.5, dash='dash'),
-            name=f"İz Süren Stop (%{trailing_stop_pct})"
-        ))
-        
-        fig.update_layout(
-            height=500,
-            xaxis_rangeslider_visible=False,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=20, r=20, t=30, b=20)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-    else:
-        st.error("MPARK.IS verisi çekilemedi. Bağlantıyı kontrol edin.")
+        return {
+            "Hisse": ticker,
+            "Fiyat": round(fiyat, 2),
+            "EMA-21": round(son_bar['EMA_21'], 2),
+            "RSI-14": round(son_bar['RSI_14'], 1),
+            "ATR Stop": round(son_bar['ATR_Stop'], 2),
+            "İz Süren": round(son_bar['Trailing_Stop'], 2),
+            "Sinyal": durum
+        }
+    except:
+        return None
 
-with tab_radar:
-    st.subheader("İzleme ve Radar Tablosu")
-    radar_listesi = ["KCHOL.IS", "TCELL.IS", "ASELS.IS", "BIMAS.IS", "THYAO.IS"]
+# --- ANA EKRAN VE VERİTABANI YÜKLEME ---
+st.title("🛡️ Dinamik Quantamental Portföy Radarı")
+
+yuklenen_dosya = st.file_uploader("Portföy Veritabanını (CSV) Yükle", type=["csv"])
+
+if yuklenen_dosya is not None:
+    # Veritabanını Oku
+    vd = pd.read_csv(yuklenen_dosya)
+    st.success(f"{len(vd)} hisselik veritabanı başarıyla yüklendi!")
     
-    radar_ozet = []
-    for sembol in radar_listesi:
-        d = hisse_verisi_hazirla(sembol)
-        if d is not None:
-            sb = d.iloc[-1]
-            durum = "GÜVENLİ" if sb['Close'] > sb['ATR_Stop'] else "RİSKLİ"
-            radar_ozet.append({
-                "Hisse": sembol,
-                "Fiyat": round(sb['Close'], 2),
-                "EMA-21": round(sb['EMA_21'], 2),
-                "RSI (14)": round(sb['RSI_14'], 1),
-                "ATR Stop": round(sb['ATR_Stop'], 2),
-                "Durum": durum
-            })
+    tab_portfoy, tab_izleme, tab_radar = st.tabs(["💼 Portföyüm", "👁️ İzleme Listem", "📡 BİST Tarayıcı (Radar)"])
+    
+    with tab_portfoy:
+        st.subheader("Aktif Yatırımlar ve Kâr Kalkanları")
+        portfoy_hisseleri = vd[vd['Kategori'] == 'Portföy']['Hisse'].tolist()
+        if portfoy_hisseleri:
+            sonuclar = [hisse_analiz_et(h) for h in portfoy_hisseleri]
+            sonuclar = [s for s in sonuclar if s is not None] # Hatalıları temizle
+            st.dataframe(pd.DataFrame(sonuclar), use_container_width=True)
+        else:
+            st.info("Portföy kategorisinde hisse bulunamadı.")
             
-    st.dataframe(pd.DataFrame(radar_ozet), use_container_width=True)
+    with tab_izleme:
+        st.subheader("Pusudaki Hedefler")
+        izleme_hisseleri = vd[vd['Kategori'] == 'İzleme']['Hisse'].tolist()
+        if izleme_hisseleri:
+            sonuclar = [hisse_analiz_et(h) for h in izleme_hisseleri]
+            sonuclar = [s for s in sonuclar if s is not None]
+            st.dataframe(pd.DataFrame(sonuclar), use_container_width=True)
+            
+    with tab_radar:
+        st.subheader("BİST Fırsat Taraması")
+        radar_hisseleri = vd[vd['Kategori'] == 'Radar']['Hisse'].tolist()
+        if st.button("🚀 Taramyı Başlat"):
+            with st.spinner('Piyasa taranıyor, algoritmalar devrede...'):
+                sonuclar = [hisse_analiz_et(h) for h in radar_hisseleri]
+                sonuclar = [s for s in sonuclar if s is not None]
+                df_radar = pd.DataFrame(sonuclar)
+                
+                # Sadece "GÜÇLÜ TREND" veren kusursuz kopuşları filtrele
+                firsatlar = df_radar[df_radar['Sinyal'].str.contains("GÜÇLÜ")]
+                
+                if not firsatlar.empty:
+                    st.success(f"{len(firsatlar)} adet onaylı kırılım bulundu!")
+                    st.dataframe(firsatlar, use_container_width=True)
+                else:
+                    st.warning("Mevcut parametrelerle güvenli bir alım fırsatı bulunamadı.")
+else:
+    st.info("Sistemi başlatmak için sol menüden CSV dosyanızı yükleyin. Sütunlar: 'Hisse' ve 'Kategori' olmalıdır.")
