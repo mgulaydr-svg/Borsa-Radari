@@ -42,7 +42,7 @@ enflasyon_orani = st.sidebar.number_input("5 Yıllık Kümülatif Enflasyon (%)"
 st.sidebar.markdown("---")
 st.sidebar.header("📋 Varlık Yönetimi")
 portfoy_girdisi = st.sidebar.text_area("💼 Portföy Hisseleri", "KCHOL.IS, TCELL.IS, DESA.IS, CLEBI.IS, KONTR.IS, BRSAN.IS, OTKAR.IS, AKSEN.IS, GLRMK.IS")
-izleme_girdisi = st.sidebar.text_area("👁️ İzleme Listesi", "MPARK.IS, TURSG.IS, ISCTR.IS, AKBNK.IS, ALARK.IS, ARDYZ.IS, CVKMD.IS, MIATK.IS, ORGE.IS, YEOTK.IS")
+izleme_girdisi = st.sidebar.text_area("👁️ İzleme Listesi", "ASTOR.IS, MPARK.IS, TURSG.IS, ISCTR.IS, AKBNK.IS, ALARK.IS, ARDYZ.IS, CVKMD.IS, MIATK.IS, ORGE.IS, YEOTK.IS")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🎯 BİST Tarama Stratejisi")
