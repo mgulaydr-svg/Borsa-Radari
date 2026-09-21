@@ -2,9 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
-st.set_page_config(page_title="Quantamental Fon Radarı V4", layout="wide")
+st.set_page_config(page_title="Quantamental Fon Radarı V4.1", layout="wide")
 
 # --- 1. MAKRO REJİM MOTORU ---
 @st.cache_data(ttl=600)
@@ -100,7 +99,7 @@ def hisse_analiz_et(ticker, strat_name):
 
         # Teknik İndikatörler
         df['EMA_Trend'] = df['Close'].ewm(span=p_ema_periyot, adjust=False).mean()
-        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean() # Stop için standart EMA21
+        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean() # Standart koruma
         
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0.0).rolling(14).mean()
@@ -116,7 +115,7 @@ def hisse_analiz_et(ticker, strat_name):
         
         df['Vol_SMA20'] = df['Volume'].rolling(20).mean()
         
-        # Stoplar
+        # Stopların Hesaplanması
         df['ATR_Stop'] = df['EMA_21'] - (p_atr * df['ATR_14'])
         df['Trailing_Stop'] = df['High'].rolling(20).max() * (1 - (p_iz_suren / 100))
         
@@ -131,18 +130,24 @@ def hisse_analiz_et(ticker, strat_name):
         
         teknik_ok = trend_sarti and rsi_sarti and hacim_sarti
         
-        # Karar Mekanizması ve Rejim Kalkanı
-        if fiyat < son_bar['Trailing_Stop'] or fiyat < son_bar['ATR_Stop']:
-            durum = "🔴 STOP OL (SAT)"
+        # Detaylı Sinyal ve Karar Mekanizması
+        if fiyat < son_bar['Trailing_Stop']:
+            durum = f"🔴 SAT (İz Süren Kırıldı: {fiyat:.2f} < {son_bar['Trailing_Stop']:.2f})"
+        elif fiyat < son_bar['ATR_Stop']:
+            durum = f"🔴 SAT (ATR Stop Kırıldı: {fiyat:.2f} < {son_bar['ATR_Stop']:.2f})"
         elif teknik_ok and temel_sarti:
             if "DÜŞÜŞ" in rejim:
-                durum = "🚫 ALIM YASAK (MAKRO DÜŞÜŞ)"
+                durum = "🚫 ALIM YASAK (Makro Rejim Düşüşte)"
             else:
-                durum = "🟢 KUSURSUZ ONAY (AL)"
+                durum = "🟢 KUSURSUZ ONAY (Teknik + Temel Uygun)"
         elif teknik_ok and not temel_sarti:
-            durum = "⚠️ TEKNİK İYİ / TEMEL ŞİŞKİN"
+            durum = f"⚠️ ŞİŞKİN (Teknik İyi Ama F/K: {fk_orani:.1f} Yüksek)"
         else:
-            durum = "⏳ BEKLE (Şartlar Sağlanmadı)"
+            eksikler = []
+            if not trend_sarti: eksikler.append(f"Trend Altı (EMA{p_ema_periyot})")
+            if not rsi_sarti: eksikler.append(f"RSI Uyumsuz ({son_bar['RSI_14']:.1f})")
+            if not hacim_sarti: eksikler.append("Hacim Yetersiz")
+            durum = f"⏳ BEKLE ({' | '.join(eksikler)})"
             
         return {
             "Hisse": ticker,
@@ -151,6 +156,7 @@ def hisse_analiz_et(ticker, strat_name):
             "PD/DD": round(pddd_orani, 2),
             f"EMA-{p_ema_periyot}": round(son_bar['EMA_Trend'], 2),
             "RSI": round(son_bar['RSI_14'], 1),
+            "İz Süren Stop": round(son_bar['Trailing_Stop'], 2),
             "ATR Stop": round(son_bar['ATR_Stop'], 2),
             "Sinyal": durum
         }
@@ -169,7 +175,7 @@ def listeyi_analiz_et(girdi_metni):
     return pd.DataFrame(sonuclar) if sonuclar else None
 
 # --- 4. ANA EKRAN SEKMELERİ ---
-st.title("🛡️ Quantamental Portföy & Tarama Kokpiti V4")
+st.title("🛡️ Quantamental Portföy & Tarama Kokpiti V4.1")
 st.caption(f"Geçerli Strateji Seti: **{strateji}** | Rejim: **{rejim}**")
 
 tab_portfoy, tab_izleme, tab_tarama, tab_sorgu = st.tabs([
@@ -220,7 +226,7 @@ with tab_tarama:
                     st.success(f"{strateji} profiline uyan {len(firsatlar)} hisse bulundu.")
                     st.dataframe(pd.DataFrame(firsatlar).sort_values(by="F/K", ascending=True), use_container_width=True)
                 else:
-                    st.warning("Bu profilin katı şartlarını (Temel + Teknik + Hacim) sağlayan hisse bulunamadı.")
+                    st.warning("Bu profilin katı şartlarını sağlayan hisse bulunamadı.")
         else:
             st.error("Yüklenen dosyada 'Tickers' sütunu yok!")
 
