@@ -37,7 +37,7 @@ st.sidebar.markdown("---")
 
 st.sidebar.header("📉 Makro Ekonomi")
 # Son 5 yılın tahmini kümülatif enflasyonu (Değiştirilebilir)
-enflasyon_orani = st.sidebar.number_input("5 Yıllık Kümülatif Enflasyon (%)", min_value=0, max_value=5000, value=500, step=50)
+enflasyon_orani = st.sidebar.number_input("5 Yıllık Kümülatif Enflasyon (%)", min_value=0, max_value=5000, value=1450, step=50)
 
 st.sidebar.markdown("---")
 st.sidebar.header("📋 Varlık Yönetimi")
