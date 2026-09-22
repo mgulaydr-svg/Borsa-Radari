@@ -6,7 +6,7 @@ import numpy as np
 st.set_page_config(page_title="Master Quant V6.1 | Rejim & Skor Motoru", layout="wide")
 
 # --- 1. VARLIK EVRENİ & PARAMETRELER ---
-HİSSE_EVRENİ = ["KCHOL.IS", "TCELL.IS", "DESA.IS", "CLEBI.IS", "KONTR.IS", "BRSAN.IS", "OTKAR.IS", "AKSEN.IS", "GLRMK.IS", "MPARK.IS", "TURSG.IS", "ISCTR.IS", "AKBNK.IS", "ALARK.IS", "ARDYZ.IS", "CVKMD.IS", "MIATK.IS", "ORGE.IS", "YEOTK.IS"]
+HİSSE_EVRENİ = ["KCHOL.IS", "ASTOR.IS", "TCELL.IS", "DESA.IS", "CLEBI.IS", "KONTR.IS", "BRSAN.IS", "OTKAR.IS", "AKSEN.IS", "GLRMK.IS", "MPARK.IS", "TURSG.IS", "ISCTR.IS", "AKBNK.IS", "ALARK.IS", "ARDYZ.IS", "CVKMD.IS", "MIATK.IS", "ORGE.IS", "YEOTK.IS"]
 MADEN_EVRENİ = ["GLDTR.IS", "GMSTR.IS"]
 
 # Piyasa Genişliği (Breadth) için Hızlı Vekil Endeks (BİST'in lokomotifleri + Kendi Evrenimiz)
