@@ -2,19 +2,13 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
 
-st.set_page_config(page_title="Master Quant V6.3 | Tüm Fonksiyonlar", layout="wide")
-
-# --- 0. YAHOO ANTI-BLOKAJ (CRUMB) ÇÖZÜMÜ ---
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-})
+st.set_page_config(page_title="Master Quant V6.4 | Güvenli Sürüm", layout="wide")
 
 # --- 1. SABİTLER VE STRATEJİLER ---
 MADEN_EVRENİ = ["GLDTR.IS", "GMSTR.IS"]
-VEKİL_ENDEKS = ["KCHOL.IS", "TCELL.IS", "BIMAS.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS", "PGSUS.IS", "SAHOL.IS", "SASA.IS", "SISE.IS", "THYAO.IS", "TOASO.IS", "TUPRS.IS", "YKBNK.IS", "AKBNK.IS", "ISCTR.IS"]
+HİSSE_EVRENİ = ["KCHOL.IS", "TCELL.IS", "DESA.IS", "CLEBI.IS", "KONTR.IS", "BRSAN.IS", "OTKAR.IS", "AKSEN.IS", "GLRMK.IS", "MPARK.IS", "TURSG.IS", "ISCTR.IS", "AKBNK.IS", "ALARK.IS", "ARDYZ.IS", "CVKMD.IS", "MIATK.IS", "ORGE.IS", "YEOTK.IS"]
+VEKİL_ENDEKS = list(set(HİSSE_EVRENİ + ["BIMAS.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS", "PGSUS.IS", "SAHOL.IS", "SASA.IS", "SISE.IS", "THYAO.IS", "TOASO.IS", "TUPRS.IS", "YKBNK.IS"]))
 
 STRATEJILER = {
     "🛡️ KALKAN": {"fk": 12.0, "pddd": 3.0, "rsi_min": 40, "rsi_max": 60, "ema": 11, "vol": 20, "iz": 5.0, "atr": 1.2},
@@ -23,14 +17,24 @@ STRATEJILER = {
     "🦅 ANKA":   {"fk": 8.0,  "pddd": 1.5, "rsi_min": 30, "rsi_max": 45, "ema": 21, "vol": 50, "iz": 10.0, "atr": 2.0}
 }
 
-# --- 2. MAKRO REJİM MOTORU ---
+# --- 2. GELİŞMİŞ MAKRO REJİM MOTORU ---
 @st.cache_data(ttl=600)
 def rejim_motorunu_calistir():
     try:
-        veri = yf.download(VEKİL_ENDEKS + ["XU100.IS"], period="2y", interval="1d", progress=False, session=session)['Close']
-        if veri.empty: return "NÖTR", {}, "", {}
+        # Doğal yfinance çağrısı (Session overrides kaldırıldı)
+        veri_ham = yf.download(VEKİL_ENDEKS + ["XU100.IS"], period="2y", interval="1d", progress=False)
         
+        if veri_ham.empty or 'Close' not in veri_ham.columns: 
+            return "NÖTR (Veri Bekleniyor)", {}, "", {}
+            
+        veri = veri_ham['Close']
+        if 'XU100.IS' not in veri.columns:
+            return "NÖTR (Endeks Verisi Eksik)", {}, "", {}
+            
         xu100 = veri['XU100.IS'].dropna()
+        if len(xu100) < 200:
+            return "NÖTR (Yetersiz Veri)", {}, "", {}
+            
         ema50 = xu100.ewm(span=50, adjust=False).mean()
         ema200 = xu100.ewm(span=200, adjust=False).mean()
         
@@ -41,7 +45,7 @@ def rejim_motorunu_calistir():
         son_20g_zirve = xu100.tail(20).max()
         drawdown_20g = ((xu100.iloc[-1] - son_20g_zirve) / son_20g_zirve) * 100
         
-        vekil_fiyatlar = veri[VEKİL_ENDEKS].dropna()
+        vekil_fiyatlar = veri[VEKİL_ENDEKS].dropna(how='all')
         vekil_ema200 = vekil_fiyatlar.ewm(span=200, adjust=False).mean()
         genislik_orani = (vekil_fiyatlar.iloc[-1] > vekil_ema200.iloc[-1]).sum() / len(VEKİL_ENDEKS) * 100
         
@@ -67,8 +71,8 @@ def rejim_motorunu_calistir():
             risk = "İşlem Başına %0.50"
             
         return rejim, tahsis, risk, {"Fiyat": round(son_fiyat, 2), "Piyasa Genişliği": round(genislik_orani, 1), "Volatilite (Yüzdelik)": round(vol_yuzdelik, 1)}
-    except:
-        return "BİLİNMİYOR", {}, "", {}
+    except Exception as e:
+        return f"SİSTEM UYARISI", {}, "", {}
 
 rejim_adi, tahsis_plani, risk_butcesi, makro_metrikler = rejim_motorunu_calistir()
 
@@ -89,9 +93,9 @@ secilen_tarama_stratejisi = st.sidebar.selectbox("Tüm Borsayı Tarama Profili:"
 @st.cache_data(ttl=300)
 def varlik_analizi(ticker, varlik_tipi="Hisse"):
     try:
-        data = yf.Ticker(ticker, session=session)
+        data = yf.Ticker(ticker)
         df = data.history(period="1y", interval="1d")
-        if len(df) < 50: return None
+        if df is None or df.empty or len(df) < 50: return None
         
         son_fiyat = df['Close'].iloc[-1]
         df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
@@ -109,16 +113,18 @@ def varlik_analizi(ticker, varlik_tipi="Hisse"):
         iz_suren_atr = df['High'].rolling(20).max().iloc[-1] - (3.0 * atr)
         getiri_6a = ((son_fiyat - df['Close'].iloc[-126]) / df['Close'].iloc[-126]) * 100 if len(df) >= 126 else 0
         
+        # Temel Veri Güvenlik Zırhı
         fk_val, pddd_val = 0.0, 0.0
         fk_str, pddd_str = "-", "-"
         if varlik_tipi == "Hisse":
             try:
                 info = data.info
-                if info:
+                if info and isinstance(info, dict):
                     fk_val = float(info.get('trailingPE') or 0)
                     pddd_val = float(info.get('priceToBook') or 0)
                     fk_str, pddd_str = round(fk_val, 1), round(pddd_val, 1)
-            except: pass 
+            except: 
+                pass # Yahoo API kısıtlaması olursa çökmek yerine tire (-) basar
 
         sonuc = {
             "Varlık": ticker,
@@ -131,6 +137,7 @@ def varlik_analizi(ticker, varlik_tipi="Hisse"):
             "İz Süren (3 ATR)": round(iz_suren_atr, 2)
         }
 
+        # Strateji Matrisi Hesaplama
         for ad, p in STRATEJILER.items():
             ema_t = df['Close'].ewm(span=p['ema'], adjust=False).mean().iloc[-1]
             atr_s = df['EMA21'].iloc[-1] - (p['atr'] * df['ATR_14'].iloc[-1])
@@ -140,6 +147,7 @@ def varlik_analizi(ticker, varlik_tipi="Hisse"):
                 sinyal = "🔴 SAT"
             else:
                 tek_ok = (son_fiyat > ema_t) and (p['rsi_min'] <= rsi <= p['rsi_max']) and (df['Volume'].iloc[-1] >= df['Vol_SMA20'].iloc[-1] * (1 + p['vol']/100))
+                # Madenler için temeli doğru kabul et, hisse için bilanço testi yap
                 tem_ok = True if varlik_tipi == "Emtia" else ((0 < fk_val <= p['fk']) and (0 < pddd_val <= p['pddd']))
                 
                 if tek_ok and tem_ok: 
@@ -152,26 +160,27 @@ def varlik_analizi(ticker, varlik_tipi="Hisse"):
             sonuc[ad.split(" ")[0]] = sinyal
 
         return sonuc
-    except: return None
+    except Exception as e: 
+        return None
 
-def listeyi_islet(girdi_metni):
+def listeyi_islet(girdi_metni, varlik_tipi="Hisse"):
     hisseler = [x.strip().upper() for x in girdi_metni.split(",") if x.strip()]
     if not hisseler: return None
     sonuclar = []
-    with st.spinner("Matris hesaplanıyor..."):
+    with st.spinner("Analiz motoru çalışıyor..."):
         for h in hisseler:
             if not h.endswith(".IS"): h += ".IS"
-            res = varlik_analizi(h, "Hisse")
+            res = varlik_analizi(h, varlik_tipi)
             if res: sonuclar.append(res)
     return pd.DataFrame(sonuclar) if sonuclar else None
 
-# --- 5. HIZLI TARAMA MOTORU (RADAR İÇİN LAZY EVALUATION) ---
+# --- 5. HIZLI TARAMA MOTORU (RADAR) ---
 @st.cache_data(ttl=300)
 def radar_analizi(ticker, strat_name):
     try:
-        data = yf.Ticker(ticker, session=session)
+        data = yf.Ticker(ticker)
         df = data.history(period="6mo", interval="1d")
-        if len(df) < 50: return None
+        if df is None or df.empty or len(df) < 50: return None
         
         p = STRATEJILER[strat_name]
         df['EMA_Trend'] = df['Close'].ewm(span=p['ema'], adjust=False).mean()
@@ -198,7 +207,7 @@ def radar_analizi(ticker, strat_name):
         if not stop_oldu and teknik_ok:
             try:
                 info = data.info
-                if info:
+                if info and isinstance(info, dict):
                     fk = float(info.get('trailingPE') or 0)
                     pddd = float(info.get('priceToBook') or 0)
                     temel_ok = (0 < fk <= p['fk']) and (0 < pddd <= p['pddd'])
@@ -213,7 +222,7 @@ def radar_analizi(ticker, strat_name):
     except: return None
 
 # --- 6. ARAYÜZ (KOKPİT) ---
-st.title("🏛️ Master Quant Fon Yönetim Sistemi V6.3")
+st.title("🏛️ Master Quant Fon Yönetim Sistemi V6.4")
 
 st.markdown("### 🌐 Dinamik Rejim ve Varlık Tahsisi")
 col1, col2, col3, col4 = st.columns(4)
@@ -239,23 +248,29 @@ tab_portfoy, tab_izleme, tab_maden, tab_tarama, tab_sorgu = st.tabs([
 
 with tab_portfoy:
     st.subheader("Aktif Yatırımlar (Çoklu Sinyal Matrisi)")
-    df_port = listeyi_islet(portfoy_girdisi)
-    if df_port is not None: st.dataframe(df_port.sort_values(by="6A Momentum (%)", ascending=False), use_container_width=True)
+    df_port = listeyi_islet(portfoy_girdisi, "Hisse")
+    if df_port is not None and not df_port.empty: 
+        st.dataframe(df_port.sort_values(by="6A Momentum (%)", ascending=False))
+    else:
+        st.warning("Veriler anlık olarak çekilemedi. Yahoo Finance API geçici olarak meşgul olabilir.")
 
 with tab_izleme:
     st.subheader("Pusudaki Hedefler (Çoklu Sinyal Matrisi)")
-    df_iz = listeyi_islet(izleme_girdisi)
-    if df_iz is not None: st.dataframe(df_iz.sort_values(by="6A Momentum (%)", ascending=False), use_container_width=True)
+    df_iz = listeyi_islet(izleme_girdisi, "Hisse")
+    if df_iz is not None and not df_iz.empty: 
+        st.dataframe(df_iz.sort_values(by="6A Momentum (%)", ascending=False))
+    else:
+        st.warning("Veriler anlık olarak çekilemedi.")
 
 with tab_maden:
     st.subheader("Kriz Kalkanları (Temel Analizden Muaf)")
     if st.button("Madenleri Analiz Et"):
-        with st.spinner("Emtia verileri çekiliyor..."):
-            maden_sonuclar = [varlik_analizi(m, "Emtia") for m in MADEN_EVRENİ]
-            df_maden = pd.DataFrame([s for s in maden_sonuclar if s])
-            if not df_maden.empty:
-                df_maden = df_maden.drop(columns=["F/K", "PD/DD"])
-                st.dataframe(df_maden, use_container_width=True)
+        df_maden = listeyi_islet(",".join(MADEN_EVRENİ), "Emtia")
+        if df_maden is not None and not df_maden.empty:
+            df_maden = df_maden.drop(columns=["F/K", "PD/DD"])
+            st.dataframe(df_maden)
+        else:
+            st.warning("Emtia verileri anlık olarak çekilemedi.")
 
 with tab_tarama:
     st.subheader(f"Tüm Borsayı Tara: {secilen_tarama_stratejisi}")
@@ -276,7 +291,7 @@ with tab_tarama:
             metin.text("Tarama Tamamlandı!")
             if firsatlar:
                 st.success(f"{secilen_tarama_stratejisi} profiline uyan {len(firsatlar)} hisse bulundu.")
-                st.dataframe(pd.DataFrame(firsatlar), use_container_width=True)
+                st.dataframe(pd.DataFrame(firsatlar))
             else:
                 st.warning("Bu profilin katı şartlarını sağlayan hisse bulunamadı.")
 
@@ -288,4 +303,4 @@ with tab_sorgu:
         with st.spinner("Röntgen çekiliyor..."):
             sonuc = varlik_analizi(aranan, "Hisse")
             if sonuc:
-                st.dataframe(pd.DataFrame([sonuc]), use_container_width=True)
+                st.dataframe(pd.DataFrame([sonuc]))
