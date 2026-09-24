@@ -8,7 +8,7 @@ st.set_page_config(page_title="Master Quant V6.6 | Hata Raporlamalı Sürüm", l
 # --- 1. SABİTLER VE STRATEJİLER ---
 # Yahoo'nun yerel ETF'leri bloklama ihtimaline karşı küresel Ons Altın (GC=F) ve Gümüş (SI=F) eklendi
 MADEN_EVRENİ = ["GLDTR.IS", "GMSTR.IS", "GC=F", "SI=F"]
-HİSSE_EVRENİ = ["KCHOL.IS", "TCELL.IS", "DESA.IS", "CLEBI.IS", "KONTR.IS", "BRSAN.IS", "OTKAR.IS", "AKSEN.IS", "GLRMK.IS", "MPARK.IS", "TURSG.IS", "ISCTR.IS", "AKBNK.IS", "ALARK.IS", "ARDYZ.IS", "CVKMD.IS", "MIATK.IS", "ORGE.IS", "YEOTK.IS"]
+HİSSE_EVRENİ = ["KCHOL.IS", "TCELL.IS", "DESA.IS", "CLEBI.IS", "KONTR.IS", "BRSAN.IS", "OTKAR.IS", "AKSEN.IS", "GLRMK.IS", "MPARK.IS", "TURSG.IS", "ASTOR.IS", "ISCTR.IS", "AKBNK.IS", "ALARK.IS", "ARDYZ.IS", "CVKMD.IS", "MIATK.IS", "ORGE.IS", "YEOTK.IS"]
 VEKİL_ENDEKS = list(set(HİSSE_EVRENİ + ["BIMAS.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS", "PGSUS.IS", "SAHOL.IS", "SASA.IS", "SISE.IS", "THYAO.IS", "TOASO.IS", "TUPRS.IS", "YKBNK.IS"]))
 
 STRATEJILER = {
